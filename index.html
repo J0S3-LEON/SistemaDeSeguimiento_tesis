@@ -33,6 +33,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
         const API_BASE_URL = 'http://localhost:4000';
+        const STORAGE_KEY = 'tesis-seguimiento-institutions-v1';
 
         // Iconos reutilizables en formato SVG
         const MapPinIcon = () => (<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>);
@@ -285,25 +286,68 @@
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [toastInfo, setToastInfo] = useState({ show: false, message: '' });
 
+            const saveToLocalStorage = (data) => {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            };
+
+            const readStoredInstitutions = () => {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    if (!saved) return [];
+                    const parsed = JSON.parse(saved);
+                    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
+                } catch (error) {
+                    console.warn('No se pudieron leer los datos guardados:', error.message);
+                    return [];
+                }
+            };
+
             const loadInstitutions = async () => {
+                const saved = readStoredInstitutions();
+
+                if (saved.length > 0) {
+                    setInstitutions(saved);
+                }
+
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/institutions`);
                     if (!response.ok) throw new Error('No se pudo cargar la data');
+
                     const data = await response.json();
-                    if (Array.isArray(data) && data.length > 0) {
+                    if (!Array.isArray(data) || data.length === 0) {
+                        if (saved.length > 0) {
+                            setInstitutions(saved);
+                        }
+                        return;
+                    }
+
+                    if (saved.length === 0) {
                         setInstitutions(data);
+                        saveToLocalStorage(data);
+                        return;
+                    }
+
+                    // Si ya hay datos guardados en el navegador, se priorizan para evitar
+                    // que el backend en modo fallback (default) sobrescriba cambios del usuario.
+                    setInstitutions(saved);
+                    saveToLocalStorage(saved);
+                } catch (error) {
+                    console.warn('Usando datos locales porque el backend no está disponible:', error.message);
+                    if (saved.length > 0) {
+                        setInstitutions(saved);
                     } else {
                         setInstitutions(initialInstitutions);
                     }
-                } catch (error) {
-                    console.warn('Usando datos locales porque el backend no está disponible:', error.message);
-                    setInstitutions(initialInstitutions);
                 }
             };
 
             useEffect(() => {
                 loadInstitutions();
             }, []);
+
+            useEffect(() => {
+                saveToLocalStorage(institutions);
+            }, [institutions]);
 
             const showToast = (message) => {
                 setToastInfo({ show: true, message });
@@ -334,6 +378,11 @@
             };
 
             const handleSaveModal = async (updatedInst) => {
+                const nextState = institutions.map(i => i.id === updatedInst.id ? updatedInst : i);
+                setInstitutions(nextState);
+                saveToLocalStorage(nextState);
+                setIsModalOpen(false);
+
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/institutions/${updatedInst.id}`, {
                         method: 'PUT',
@@ -345,14 +394,13 @@
 
                     const result = await response.json();
                     const savedInst = result?.data || updatedInst;
-                    setInstitutions(prev => prev.map(i => i.id === savedInst.id ? savedInst : i));
-                    setIsModalOpen(false);
+                    const syncedState = nextState.map(i => i.id === savedInst.id ? savedInst : i);
+                    setInstitutions(syncedState);
+                    saveToLocalStorage(syncedState);
                     showToast(`Se actualizaron los datos de ${savedInst.name}`);
                     return;
                 } catch (error) {
                     console.warn('Guardado local:', error.message);
-                    setInstitutions(prev => prev.map(i => i.id === updatedInst.id ? updatedInst : i));
-                    setIsModalOpen(false);
                     showToast(`Se actualizaron los datos de ${updatedInst.name}`);
                 }
             };
@@ -362,7 +410,9 @@
                 if (!institution) return;
 
                 const updated = { ...institution, status: newStatus };
-                setInstitutions(prev => prev.map(i => i.id === id ? updated : i));
+                const nextState = institutions.map(i => i.id === id ? updated : i);
+                setInstitutions(nextState);
+                saveToLocalStorage(nextState);
 
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/institutions/${id}`, {
