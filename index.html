@@ -32,7 +32,10 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
-        const API_BASE_URL = 'http://localhost:4000';
+        const API_BASE_URL =
+            window.location.hostname === 'localhost'
+                ? 'http://localhost:4000'
+                : 'https://sistema-seguimiento-api.onrender.com';
         const STORAGE_KEY = 'tesis-seguimiento-institutions-v1';
 
         // Iconos reutilizables en formato SVG
