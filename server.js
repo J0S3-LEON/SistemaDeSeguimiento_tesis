@@ -283,6 +283,59 @@ async function getInstitutions() {
   }
 }
 
+async function createInstitution(institutionData) {
+  if (!client._connected) {
+    return { ok: false, message: 'PostgreSQL no está disponible.' };
+  }
+
+  const name = typeof institutionData.name === 'string' ? institutionData.name.trim() : '';
+  if (!name) {
+    return { ok: false, status: 400, message: 'El nombre de la institución es obligatorio.' };
+  }
+
+  try {
+    await client.query('BEGIN;');
+    const result = await client.query(
+      `INSERT INTO institutions (name, address, phone, status, contact, priority)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, address, phone, status, contact, priority;`,
+      [
+        name,
+        institutionData.address || '',
+        institutionData.phone || '',
+        institutionData.status || 'Pendiente',
+        institutionData.contact || '',
+        institutionData.priority || 'Media'
+      ]
+    );
+
+    const institution = {
+      ...result.rows[0],
+      followUps: normalizeFollowUps()
+    };
+
+    for (let i = 0; i < institution.followUps.length; i += 1) {
+      const followUp = institution.followUps[i];
+      await client.query(
+        `INSERT INTO follow_ups (institution_id, position, date, notes, status)
+         VALUES ($1, $2, $3, $4, $5);`,
+        [institution.id, i + 1, null, '', followUp.status]
+      );
+    }
+
+    await client.query('COMMIT;');
+    return { ok: true, data: institution };
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch (rollbackError) {
+      console.error('Error al revertir la creación de institución:', rollbackError.message);
+    }
+    console.error('Error al crear institución:', error.message);
+    return { ok: false, status: 500, message: 'No se pudo crear la institución.' };
+  }
+}
+
 async function updateInstitution(id, institutionData) {
   if (!client._connected) {
     return { ok: false, message: 'PostgreSQL no está disponible.' };
@@ -336,6 +389,16 @@ app.get('/api/health', (_, res) => {
 app.get('/api/institutions', async (_, res) => {
   const institutions = await getInstitutions();
   res.json(institutions);
+});
+
+app.post('/api/institutions', async (req, res) => {
+  const result = await createInstitution(req.body || {});
+
+  if (!result.ok) {
+    return res.status(result.status || 503).json({ ok: false, message: result.message });
+  }
+
+  return res.status(201).json({ ok: true, data: result.data });
 });
 
 app.put('/api/institutions/:id', async (req, res) => {
