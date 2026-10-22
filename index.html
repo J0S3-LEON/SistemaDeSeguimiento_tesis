@@ -101,12 +101,24 @@
         // Modal de Edición de Institución
         const EditModal = ({ isOpen, institution, onClose, onSave }) => {
             const [formData, setFormData] = useState(null);
+            const [isSaving, setIsSaving] = useState(false);
 
             useEffect(() => {
-                if (institution) setFormData(JSON.parse(JSON.stringify(institution))); // Deep copy
+                if (institution) {
+                    setFormData(JSON.parse(JSON.stringify(institution)));
+                    setIsSaving(false);
+                }
             }, [institution]);
 
             if (!isOpen || !formData) return null;
+
+            const handleSave = async () => {
+                const name = formData.name.trim();
+                if (!name) return;
+                setIsSaving(true);
+                await onSave({ ...formData, name });
+                setIsSaving(false);
+            };
 
             const handleFollowUpChange = (index, field, value) => {
                 const updatedFollowUps = [...formData.followUps];
@@ -135,6 +147,19 @@
                             {/* Columna Izquierda: Info General y Estado */}
                             <div className="space-y-5 bg-white p-5 rounded-xl border shadow-sm">
                                 <h3 className="font-semibold text-gray-800 border-b pb-2">Información y Estado General</h3>
+
+                                <div>
+                                    <label htmlFor="edit-institution-name" className="text-sm font-medium text-gray-600 block mb-1">Nombre de la institución *</label>
+                                    <input
+                                        id="edit-institution-name"
+                                        type="text"
+                                        value={formData.name}
+                                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                        maxLength="255"
+                                        required
+                                        className="w-full border-gray-300 rounded-lg p-2 bg-gray-50 border focus:ring-2 focus:ring-indigo-500"
+                                    />
+                                </div>
                                 
                                 <div>
                                     <label className="text-sm font-medium text-gray-600 block mb-1">Estado de la Solicitud</label>
@@ -240,11 +265,11 @@
 
                         {/* Pie del Modal */}
                         <div className="bg-white border-t px-6 py-4 flex justify-end gap-3 shrink-0">
-                            <button onClick={onClose} className="px-5 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors">
+                            <button onClick={onClose} disabled={isSaving} className="px-5 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium transition-colors disabled:opacity-60">
                                 Cancelar
                             </button>
-                            <button onClick={() => onSave(formData)} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2">
-                                Guardar Cambios
+                            <button onClick={handleSave} disabled={isSaving || !formData.name.trim()} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2">
+                                {isSaving ? 'Guardando...' : 'Guardar Cambios'}
                             </button>
                         </div>
                     </div>
@@ -450,12 +475,12 @@
             const readStoredInstitutions = () => {
                 try {
                     const saved = localStorage.getItem(STORAGE_KEY);
-                    if (!saved) return [];
+                    if (saved === null) return null;
                     const parsed = JSON.parse(saved);
-                    return Array.isArray(parsed) && parsed.length > 0 ? parsed : [];
+                    return Array.isArray(parsed) ? parsed : null;
                 } catch (error) {
                     console.warn('No se pudieron leer los datos guardados:', error.message);
-                    return [];
+                    return null;
                 }
             };
 
@@ -472,13 +497,16 @@
 
                     const data = await response.json();
                     if (!Array.isArray(data) || data.length === 0) {
-                        if (saved.length > 0) {
+                        if (saved !== null) {
                             setInstitutions(saved);
+                        } else if (Array.isArray(data)) {
+                            setInstitutions(data);
+                            saveToLocalStorage(data);
                         }
                         return;
                     }
 
-                    if (saved.length === 0) {
+                    if (saved === null) {
                         setInstitutions(data);
                         saveToLocalStorage(data);
                         return;
@@ -490,7 +518,7 @@
                     saveToLocalStorage(saved);
                 } catch (error) {
                     console.warn('Usando datos locales porque el backend no está disponible:', error.message);
-                    if (saved.length > 0) {
+                    if (saved !== null) {
                         setInstitutions(saved);
                     } else {
                         setInstitutions(initialInstitutions);
@@ -573,11 +601,6 @@
             };
 
             const handleSaveModal = async (updatedInst) => {
-                const nextState = institutions.map(i => i.id === updatedInst.id ? updatedInst : i);
-                setInstitutions(nextState);
-                saveToLocalStorage(nextState);
-                setIsModalOpen(false);
-
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/institutions/${updatedInst.id}`, {
                         method: 'PUT',
@@ -585,18 +608,51 @@
                         body: JSON.stringify(updatedInst)
                     });
 
-                    if (!response.ok) throw new Error('No se pudo guardar');
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || 'No se pudo guardar en el servidor.');
+                    }
 
                     const result = await response.json();
                     const savedInst = result?.data || updatedInst;
-                    const syncedState = nextState.map(i => i.id === savedInst.id ? savedInst : i);
+                    const syncedState = institutions.map(i => i.id === savedInst.id ? savedInst : i);
                     setInstitutions(syncedState);
                     saveToLocalStorage(syncedState);
+                    setIsModalOpen(false);
                     showToast(`Se actualizaron los datos de ${savedInst.name}`);
                     return;
                 } catch (error) {
-                    console.warn('Guardado local:', error.message);
-                    showToast(`Se actualizaron los datos de ${updatedInst.name}`);
+                    console.warn('Actualización local de la institución:', error.message);
+                    const nextState = institutions.map(i => i.id === updatedInst.id ? updatedInst : i);
+                    setInstitutions(nextState);
+                    saveToLocalStorage(nextState);
+                    setIsModalOpen(false);
+                    showToast(`Se actualizaron los datos de ${updatedInst.name} solo en este navegador; no se pudo sincronizar con el servidor.`);
+                }
+            };
+
+            const handleDeleteInstitution = async (institution) => {
+                if (!window.confirm(`¿Seguro que deseas eliminar "${institution.name}" y sus seguimientos?`)) return;
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/institutions/${institution.id}`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || 'No se pudo eliminar en el servidor.');
+                    }
+
+                    const nextState = institutions.filter(item => item.id !== institution.id);
+                    setInstitutions(nextState);
+                    saveToLocalStorage(nextState);
+                    showToast(`Se eliminó ${institution.name} exitosamente.`);
+                } catch (error) {
+                    console.warn('Eliminación local de la institución:', error.message);
+                    const nextState = institutions.filter(item => item.id !== institution.id);
+                    setInstitutions(nextState);
+                    saveToLocalStorage(nextState);
+                    showToast(`${institution.name} se eliminó solo de este navegador; no se pudo sincronizar con el servidor.`);
                 }
             };
 
@@ -913,12 +969,21 @@
                                                         <span className="text-xs text-gray-500 mt-1 block">{completedFollowUps}/3 Realizados</span>
                                                     </td>
                                                     <td className="px-6 py-4 text-center">
-                                                        <button 
-                                                            onClick={() => handleEditClick(inst)}
-                                                            className="text-indigo-600 hover:text-white border border-indigo-600 hover:bg-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1"
-                                                        >
-                                                            <EditIcon /> Gestionar
-                                                        </button>
+                                                        <div className="flex justify-center gap-2">
+                                                            <button
+                                                                onClick={() => handleEditClick(inst)}
+                                                                className="text-indigo-600 hover:text-white border border-indigo-600 hover:bg-indigo-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-1"
+                                                            >
+                                                                <EditIcon /> Editar
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteInstitution(inst)}
+                                                                className="text-red-600 hover:text-white border border-red-600 hover:bg-red-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                                                                aria-label={`Eliminar ${inst.name}`}
+                                                            >
+                                                                Eliminar
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             );

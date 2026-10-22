@@ -343,18 +343,24 @@ async function updateInstitution(id, institutionData) {
     return { ok: false, message: 'PostgreSQL no está disponible.' };
   }
 
+  const name = typeof institutionData.name === 'string' ? institutionData.name.trim() : '';
+  if (!name) {
+    return { ok: false, status: 400, message: 'El nombre de la institución es obligatorio.' };
+  }
+
   try {
     const fields = [
-      institutionData.name,
-      institutionData.address,
+      name,
+      institutionData.address || '',
       institutionData.phone || '',
-      institutionData.status,
+      institutionData.status || 'Pendiente',
       institutionData.contact || '',
-      institutionData.priority,
+      institutionData.priority || 'Media',
       id
     ];
 
-    await client.query(
+    await client.query('BEGIN;');
+    const result = await client.query(
       `UPDATE institutions
        SET name = $1,
            address = $2,
@@ -366,21 +372,57 @@ async function updateInstitution(id, institutionData) {
       fields
     );
 
+    if (result.rowCount === 0) {
+      await client.query('ROLLBACK;');
+      return { ok: false, status: 404, message: 'No se encontró la institución.' };
+    }
+
     await client.query('DELETE FROM follow_ups WHERE institution_id = $1;', [id]);
 
-    for (let i = 0; i < (institutionData.followUps || []).length; i += 1) {
-      const followUp = institutionData.followUps[i];
-      await client.query(
+    const followUps = normalizeFollowUps(institutionData.followUps);
+    for (let i = 0; i < followUps.length; i += 1) {
+      const followUp = followUps[i];
+      const followUpResult = await client.query(
         `INSERT INTO follow_ups (institution_id, position, date, notes, status)
-         VALUES ($1, $2, $3, $4, $5);`,
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id;`,
         [id, i + 1, followUp.date || null, followUp.notes || '', followUp.status || 'Pendiente']
       );
+      followUp.id = followUpResult.rows[0].id;
+    }
+
+    await client.query('COMMIT;');
+    return { ok: true };
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK;');
+    } catch (rollbackError) {
+      console.error('Error al revertir la actualización de institución:', rollbackError.message);
+    }
+    console.error('Error al actualizar institución:', error.message);
+    return { ok: false, status: 500, message: 'No se pudo actualizar la institución.' };
+  }
+}
+
+async function deleteInstitution(id) {
+  if (!client._connected) {
+    return { ok: false, message: 'PostgreSQL no está disponible.' };
+  }
+
+  try {
+    const result = await client.query(
+      'DELETE FROM institutions WHERE id = $1 RETURNING id;',
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return { ok: false, status: 404, message: 'No se encontró la institución.' };
     }
 
     return { ok: true };
   } catch (error) {
-    console.error('Error al actualizar institución:', error.message);
-    return { ok: false, message: error.message };
+    console.error('Error al eliminar institución:', error.message);
+    return { ok: false, status: 500, message: 'No se pudo eliminar la institución.' };
   }
 }
 
@@ -404,16 +446,34 @@ app.post('/api/institutions', async (req, res) => {
 });
 
 app.put('/api/institutions/:id', async (req, res) => {
-  const { id } = req.params;
-  const result = await updateInstitution(Number(id), req.body);
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, message: 'El ID de la institución no es válido.' });
+  }
+
+  const result = await updateInstitution(id, req.body || {});
 
   if (!result.ok) {
-    return res.status(500).json({ ok: false, message: result.message || 'No se pudo guardar la institución.' });
+    return res.status(result.status || 503).json({ ok: false, message: result.message });
   }
 
   const updated = await getInstitutions();
-  const selected = updated.find((item) => item.id === Number(id));
+  const selected = updated.find((item) => item.id === id);
   return res.json({ ok: true, data: selected });
+});
+
+app.delete('/api/institutions/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ ok: false, message: 'El ID de la institución no es válido.' });
+  }
+
+  const result = await deleteInstitution(id);
+  if (!result.ok) {
+    return res.status(result.status || 503).json({ ok: false, message: result.message });
+  }
+
+  return res.json({ ok: true });
 });
 
 app.listen(port, async () => {
