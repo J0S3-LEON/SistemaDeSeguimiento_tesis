@@ -794,6 +794,62 @@
                     }
                 });
 
+                doc.addPage();
+                const followUpRows = [];
+                institutions.forEach(inst => {
+                    (inst.followUps || []).forEach((followUp, index) => {
+                        followUpRows.push([
+                            inst.id,
+                            inst.name,
+                            `Seguimiento ${index + 1}`,
+                            followUp.date || 'Sin fecha',
+                            followUp.status || 'Pendiente',
+                            followUp.notes?.trim() || 'Sin observaciones'
+                        ]);
+                    });
+                });
+
+                doc.autoTable({
+                    head: [["ID", "Institución", "N.º", "Fecha", "Estado", "Observaciones"]],
+                    body: followUpRows,
+                    startY: 28,
+                    theme: 'grid',
+                    styles: { fontSize: 8, cellPadding: 3, overflow: 'linebreak', textColor: [15, 23, 42], valign: 'middle' },
+                    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255] },
+                    alternateRowStyles: { fillColor: [249, 250, 251] },
+                    columnStyles: {
+                        0: { cellWidth: 15 },
+                        1: { cellWidth: 48 },
+                        2: { cellWidth: 28 },
+                        3: { cellWidth: 28 },
+                        4: { cellWidth: 30 },
+                        5: { cellWidth: 'auto' }
+                    },
+                    didDrawPage: function () {
+                        doc.setFontSize(16);
+                        doc.setTextColor(55, 48, 163);
+                        doc.text("Detalle de Seguimientos", 14, 15);
+
+                        doc.setFontSize(10);
+                        doc.setTextColor(100);
+                        doc.text(`Fecha de reporte: ${new Date().toLocaleDateString()} | Ayacucho, Perú`, 14, 22);
+                    },
+                    didParseCell: function (data) {
+                        const statusColors = {
+                            Pendiente: { fillColor: [255, 247, 237], textColor: [180, 83, 9] },
+                            Realizado: { fillColor: [220, 252, 231], textColor: [22, 101, 52] },
+                            Reprogramado: { fillColor: [254, 243, 199], textColor: [161, 98, 7] }
+                        };
+                        const cellStyle = statusColors[data.cell.raw];
+
+                        if (data.section === 'body' && data.column.index === 4 && cellStyle) {
+                            data.cell.styles.fillColor = cellStyle.fillColor;
+                            data.cell.styles.textColor = cellStyle.textColor;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                });
+
                 doc.save("Reporte_Tesis_Instituciones.pdf");
                 showToast("Reporte PDF generado exitosamente.");
             };
