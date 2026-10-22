@@ -170,10 +170,10 @@ const defaultInstitutions = [
   {
     id: 12,
     name: 'IE Santa Maria',
-    address: 'Jr. Garcilazo de la Vega 461, Ayacucho',
+    address: 'Jr. 9 de Diciembre 385, Ayacucho',
     phone: '',
     status: 'Pendiente',
-    contact: 'Oswaldo Avelino Guerra Hernandez',
+    contact: '-',
     priority: 'Media',
     followUps: [
       { id: 1, date: '', notes: '', status: 'Pendiente' },
