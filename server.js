@@ -316,11 +316,13 @@ async function createInstitution(institutionData) {
 
     for (let i = 0; i < institution.followUps.length; i += 1) {
       const followUp = institution.followUps[i];
-      await client.query(
+      const followUpResult = await client.query(
         `INSERT INTO follow_ups (institution_id, position, date, notes, status)
-         VALUES ($1, $2, $3, $4, $5);`,
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id;`,
         [institution.id, i + 1, null, '', followUp.status]
       );
+      followUp.id = followUpResult.rows[0].id;
     }
 
     await client.query('COMMIT;');
