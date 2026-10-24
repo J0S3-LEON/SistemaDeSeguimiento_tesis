@@ -706,10 +706,13 @@
                     'Prioridad': inst.priority,
                     'Seguimiento 1 (Estado)': inst.followUps[0].status,
                     'Seguimiento 1 (Fecha)': inst.followUps[0].date || 'Sin fecha',
+                    'Seguimiento 1 (Descripción)': inst.followUps[0].notes?.trim() || 'Sin descripción',
                     'Seguimiento 2 (Estado)': inst.followUps[1].status,
                     'Seguimiento 2 (Fecha)': inst.followUps[1].date || 'Sin fecha',
+                    'Seguimiento 2 (Descripción)': inst.followUps[1].notes?.trim() || 'Sin descripción',
                     'Seguimiento 3 (Estado)': inst.followUps[2].status,
-                    'Seguimiento 3 (Fecha)': inst.followUps[2].date || 'Sin fecha'
+                    'Seguimiento 3 (Fecha)': inst.followUps[2].date || 'Sin fecha',
+                    'Seguimiento 3 (Descripción)': inst.followUps[2].notes?.trim() || 'Sin descripción'
                 }));
 
                 const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -723,9 +726,9 @@
                 });
 
                 const wscols = [
-                    {wch:5}, {wch:35}, {wch:45}, {wch:15}, {wch:35}, 
-                    {wch:20}, {wch:15}, {wch:22}, {wch:20}, {wch:22}, 
-                    {wch:20}, {wch:22}, {wch:20}
+                    {wch:5}, {wch:35}, {wch:45}, {wch:15}, {wch:35}, {wch:20}, {wch:15},
+                    {wch:22}, {wch:15}, {wch:40}, {wch:22}, {wch:15}, {wch:40},
+                    {wch:22}, {wch:15}, {wch:40}
                 ];
                 worksheet['!cols'] = wscols;
 
@@ -802,6 +805,65 @@
 
                         const columnIndex = data.column.index;
                         if (columnIndex === 3 || columnIndex === 5 || columnIndex === 6 || columnIndex === 7) {
+                            data.cell.styles.fillColor = cellStyle.fillColor;
+                            data.cell.styles.textColor = cellStyle.textColor;
+                            data.cell.styles.fontStyle = 'bold';
+                        }
+                    }
+                });
+
+                doc.addPage();
+                const followUpRows = institutions.flatMap(inst =>
+                    (inst.followUps || []).map((followUp, index) => [
+                        inst.id,
+                        inst.name,
+                        `Seguimiento ${index + 1}`,
+                        followUp.date || 'Sin fecha',
+                        followUp.status || 'Pendiente',
+                        followUp.notes?.trim() || 'Sin descripción'
+                    ])
+                );
+
+                doc.autoTable({
+                    head: [["ID", "Institución", "Seguimiento", "Fecha", "Estado", "Descripción / Observaciones"]],
+                    body: followUpRows,
+                    startY: 28,
+                    theme: 'grid',
+                    styles: {
+                        fontSize: 8,
+                        cellPadding: 3,
+                        overflow: 'linebreak',
+                        textColor: [15, 23, 42],
+                        valign: 'middle'
+                    },
+                    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255] },
+                    alternateRowStyles: { fillColor: [249, 250, 251] },
+                    columnStyles: {
+                        0: { cellWidth: 12 },
+                        1: { cellWidth: 48 },
+                        2: { cellWidth: 32 },
+                        3: { cellWidth: 27 },
+                        4: { cellWidth: 30 },
+                        5: { cellWidth: 118 }
+                    },
+                    didDrawPage: function () {
+                        doc.setFontSize(16);
+                        doc.setTextColor(55, 48, 163);
+                        doc.text("Detalle de Seguimientos", 14, 15);
+
+                        doc.setFontSize(10);
+                        doc.setTextColor(100);
+                        doc.text(`Fecha de reporte: ${new Date().toLocaleDateString()} | Ayacucho, Perú`, 14, 22);
+                    },
+                    didParseCell: function (data) {
+                        const statusColors = {
+                            Pendiente: { fillColor: [255, 247, 237], textColor: [180, 83, 9] },
+                            Realizado: { fillColor: [220, 252, 231], textColor: [22, 101, 52] },
+                            Reprogramado: { fillColor: [254, 243, 199], textColor: [161, 98, 7] }
+                        };
+                        const cellStyle = statusColors[data.cell.raw];
+
+                        if (data.section === 'body' && data.column.index === 4 && cellStyle) {
                             data.cell.styles.fillColor = cellStyle.fillColor;
                             data.cell.styles.textColor = cellStyle.textColor;
                             data.cell.styles.fontStyle = 'bold';
